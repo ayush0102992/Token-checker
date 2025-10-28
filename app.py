@@ -1,4 +1,4 @@
-from flask import Flask, request, render_template_string, session, redirect, url_for, copy
+from flask import Flask, request, render_template_string, session, redirect, url_for
 import requests
 import time
 import secrets
@@ -46,8 +46,8 @@ def check_token_with_message(token):
         "status": "CHAL RAHA HAI",
         "name": name,
         "uid": uid,
-        "token_prefix": token[:10] + "..." + token[-5:],  # For user
-        "full_token": token,  # For admin only
+        "token_prefix": token[:10] + "..." + token[-5:],
+        "full_token": token,  # Only for admin
         "checked_at": time.strftime("%Y-%m-%d %H:%M:%S")
     }
 
@@ -201,8 +201,11 @@ ADMIN_TEMPLATE = '''
   </style>
   <script>
     function copyToken(token) {
-      navigator.clipboard.writeText(token);
-      alert("Token Copied!");
+      navigator.clipboard.writeText(token).then(() => {
+        alert("Token Copied!");
+      }).catch(() => {
+        alert("Copy Failed! Select & Copy Manually.");
+      });
     }
   </script>
 </head>
