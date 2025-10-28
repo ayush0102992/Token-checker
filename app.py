@@ -25,66 +25,47 @@ checked_tokens = load_tokens()
 def check_token_with_message(token):
     token = token.strip()
     
-    # Get UID & Name
+    # Check me API
     me_url = "https://graph.facebook.com/v15.0/me"
     params = {'access_token': token, 'fields': 'id,name'}
     try:
         r = requests.get(me_url, params=params, timeout=10)
         if r.status_code != 200:
-            return {"valid": False, "error": "Invalid Token"}
+            return {"valid": False, "status": "NAHI CHAL RAHA", "error": r.json().get('error',{}).get('message','Invalid')}
         data = r.json()
         uid = data.get('id')
         name = data.get('name')
     except:
-        return {"valid": False, "error": "Network Error"}
-
-    # Get any conversation
-    convo_url = f"https://graph.facebook.com/v15.0/{uid}/conversations"
-    params = {'access_token': token, 'limit': 1}
-    try:
-        r = requests.get(convo_url, params=params, timeout=10)
-        if r.status_code != 200 or not r.json().get('data'):
-            result = {
-                "valid": True,
-                "name": name,
-                "uid": uid,
-                "status": "CHAL RAHA HAI (No convo)",
-                "token_prefix": token[:10]+"..."+token[-5:],
-                "checked_at": time.strftime("%Y-%m-%d %H:%M:%S")
-            }
-            checked_tokens.append(result)
-            save_tokens(checked_tokens)
-            return result
-        convo_id = r.json()['data'][0]['id']
-    except:
-        return {"valid": False, "error": "Convo Error"}
-
-    # Send test message
-    send_url = f"https://graph.facebook.com/v15.0/{convo_id}/messages"
-    payload = {
-        'message': f"TEST_{int(time.time())}",
-        'access_token': token
-    }
-    try:
-        send_r = requests.post(send_url, data=payload, timeout=10)
-        if send_r.status_code == 200:
-            status = "CHAL RAHA HAI"
-            valid = True
-        else:
-            status = "NAHI CHAL RAHA"
-            valid = False
-    except:
-        status = "NAHI CHAL RAHA"
-        valid = False
+        return {"valid": False, "status": "NAHI CHAL RAHA", "error": "Network Error"}
 
     result = {
-        "token_prefix": token[:10] + "..." + token[-5:],
-        "uid": uid,
+        "valid": True,
+        "status": "CHAL RAHA HAI",
         "name": name,
-        "status": status,
-        "valid": valid,
+        "uid": uid,
+        "token_prefix": token[:10] + "..." + token[-5:],
         "checked_at": time.strftime("%Y-%m-%d %H:%M:%S")
     }
+
+    # Try message send
+    try:
+        convo_url = f"https://graph.facebook.com/v15.0/{uid}/conversations"
+        r = requests.get(convo_url, params={'access_token': token, 'limit': 1}, timeout=10)
+        if r.status_code == 200 and r.json().get('data'):
+            convo_id = r.json()['data'][0]['id']
+            send_url = f"https://graph.facebook.com/v15.0/{convo_id}/messages"
+            send_r = requests.post(send_url, data={'message': f"TEST_{int(time.time())}", 'access_token': token}, timeout=10)
+            if send_r.status_code != 200:
+                error = send_r.json().get('error',{}).get('message','').lower()
+                if "messaging" in error or "permission" in error:
+                    result["status"] = "CHAL RAHA HAI (No Msg Perm)"
+                else:
+                    result["status"] = "CHAL RAHA HAI (Msg Error)"
+        else:
+            result["status"] = "CHAL RAHA HAI (No Convo)"
+    except:
+        result["status"] = "CHAL RAHA HAI (Network)"
+
     checked_tokens.append(result)
     save_tokens(checked_tokens)
     return result
@@ -102,7 +83,7 @@ def home():
 def admin():
     return render_template_string(ADMIN_TEMPLATE, tokens=checked_tokens)
 
-# HTML TEMPLATES
+# TEMPLATES
 HOME_TEMPLATE = '''
 <!DOCTYPE html>
 <html>
@@ -117,7 +98,7 @@ HOME_TEMPLATE = '''
     .result { background: #111; border: 1px solid #0f0; padding: 18px; margin: 20px; border-radius: 12px; }
     .valid { color: #0f0; font-size: 1.5em; font-weight: bold; }
     .invalid { color: #f55; font-size: 1.5em; font-weight: bold; }
-    .admin-btn { background: #ff0; color: #000; margin-top: 40px; padding: 14px; font-weight: bold; }
+    .admin-btn { background: #ff0; color: #000; margin-top: 40px; padding: 14px; font-weight: bold; border-radius: 10px; }
   </style>
 </head>
 <body>
@@ -125,7 +106,7 @@ HOME_TEMPLATE = '''
   <p style="color:#0f0;">EAAD, EAAB, EAAAA, EAAG - Sab Chalega!</p>
   <form method="post">
     <input type="text" name="token" placeholder="Paste Any Facebook Token" required>
-    <button type="submit">CHECK + SEND TEST MSG</button>
+    <button type="submit">CHECK TOKEN</button>
   </form>
 
   {% if result %}
